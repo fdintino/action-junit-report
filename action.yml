@@ -22,6 +22,10 @@ inputs:
     description: 'Check name for test reports.'
     required: false
     default: 'JUnit Test Report'
+  detailed_summary:
+    description: 'Posts a detailed summary in the check report'
+    required: false
+    default: 'false'
   commit:
     description: 'Commit SHA to update the check status.'
     required: false
