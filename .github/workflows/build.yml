@@ -1,39 +1,42 @@
 name: 'CI'
 on:
   push:
+    branches: [wip, main]
     tags:
       - '*'
   pull_request:
 
 jobs:
   build:
-    if: github.event_name  == 'pull_request'
+    # if: github.event_name  == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Test JUnit test import
         uses: ./
-        if: endsWith(github.ref, 'main') == false
+        # if: endsWith(github.ref, 'main') == false
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           check_name: Example JUnit Test Report
           report_paths: '**/surefire-reports/TEST-*.xml'
+          detailed_summary: true
       - name: Test PyTest test import
         uses: ./
-        if: endsWith(github.ref, 'main') == false
+        # if: endsWith(github.ref, 'main') == false
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           check_name: Example Pytest Report
           report_paths: test_results/python/report.xml
-      - name: Install NPM
-        run: |
-          npm install
-      - name: Run NPM
-        run: |
-          npm run all
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          detailed_summary: true
+      # - name: Install NPM
+      #   run: |
+      #     npm install
+      # - name: Run NPM
+      #   run: |
+      #     npm run all
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

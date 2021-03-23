@@ -7,6 +7,7 @@ export interface TestResult {
   count: number
   skipped: number
   annotations: Annotation[]
+  report: string
 }
 
 export interface Annotation {
@@ -109,9 +110,10 @@ async function parseSuite(
   let count = 0
   let skipped = 0
   const annotations: Annotation[] = []
+  const reportLines = []
 
   if (!suite.testsuite && !suite.testsuites) {
-    return {count, skipped, annotations}
+    return {count, skipped, annotations, report: ''}
   }
 
   const testsuites = suite.testsuite
@@ -124,7 +126,7 @@ async function parseSuite(
 
   for (const testsuite of testsuites) {
     if (!testsuite) {
-      return {count, skipped, annotations}
+      return {count, skipped, annotations, report: ''}
     }
 
     const suiteName = suiteRegex
@@ -139,6 +141,9 @@ async function parseSuite(
     count += res.count
     skipped += res.skipped
     annotations.push(...res.annotations)
+    if (res.report) {
+      reportLines.push(`### ${suiteName}\n\n${res.report}`);
+    }
 
     if (!testsuite.testcase) {
       continue
@@ -182,11 +187,53 @@ async function parseSuite(
           stackTrace
         )
 
+        const stderr = testcase['system-err']
+
+        let raw_details = stackTrace
+        if (stderr) {
+          raw_details += `\n\n${stderr}`
+        }
+
         const path = await resolvePath(pos.fileName)
         const title = suiteName
           ? `${pos.fileName}.${suiteName}/${testcase._attributes.name}`
           : `${pos.fileName}.${testcase._attributes.name}`
         core.info(`${path}:${pos.line} | ${message.replace(/\n/g, ' ')}`)
+
+        const messageLines = [
+          '```',
+          message,
+          '```',
+        ]
+        if (stackTrace) {
+          messageLines.push(
+            '',
+            '<details>',
+            '  <summary>Stack Trace</summary>',
+            '',
+            '```',
+            stackTrace,
+            '```',
+            '</details>'
+          )
+        }
+        if (stderr) {
+          messageLines.push(
+            '',
+            '<details>',
+            '  <summary>Output</summary>',
+            '',
+            '```',
+            stderr,
+            '```',
+            '</details>'
+          )
+        }
+
+        reportLines.push(`#### ${title}`, '')
+
+        Array.prototype.push.apply(reportLines, messageLines)
+        reportLines.push('')
 
         annotations.push({
           path,
@@ -197,12 +244,13 @@ async function parseSuite(
           annotation_level: 'failure',
           title,
           message,
-          raw_details: stackTrace
+          raw_details
         })
       }
     }
   }
-  return {count, skipped, annotations}
+  const report = reportLines.join('\n')
+  return {count, skipped, annotations, report}
 }
 
 /**
@@ -220,8 +268,9 @@ export async function parseTestReports(
   let annotations: Annotation[] = []
   let count = 0
   let skipped = 0
+  const reports = []
   for await (const file of globber.globGenerator()) {
-    const {count: c, skipped: s, annotations: a} = await parseFile(
+    const {count: c, skipped: s, annotations: a, report} = await parseFile(
       file,
       suiteRegex
     )
@@ -229,6 +278,7 @@ export async function parseTestReports(
     count += c
     skipped += s
     annotations = annotations.concat(a)
+    reports.push(report)
   }
-  return {count, skipped, annotations}
+  return {count, skipped, annotations, report: reports.join('\n\n')}
 }
