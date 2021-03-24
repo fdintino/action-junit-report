@@ -22,8 +22,7 @@ export async function run(): Promise<void> {
     const commit = core.getInput('commit')
     const failOnFailure = core.getInput('fail_on_failure') === 'true'
     const requireTests = core.getInput('require_tests') === 'true'
-    const detailedSummary = core.getInput('detailed_summary') === 'true';
-
+    const detailedSummary = core.getInput('detailed_summary') === 'true'
 
     core.endGroup()
     core.startGroup(`📦 Process test results`)
@@ -40,7 +39,7 @@ export async function run(): Promise<void> {
       return
     }
 
-    const report = detailedSummary ? testResult.report : '';
+    const {summary} = testResult
 
     const pullRequest = github.context.payload.pull_request
     const link = (pullRequest && pullRequest.html_url) || github.context.ref
@@ -63,7 +62,7 @@ export async function run(): Promise<void> {
       conclusion,
       output: {
         title,
-        summary: report,
+        summary: detailedSummary ? summary : '',
         annotations: testResult.annotations
       }
     }

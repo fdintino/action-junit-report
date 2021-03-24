@@ -7,7 +7,7 @@ export interface TestResult {
   count: number
   skipped: number
   annotations: Annotation[]
-  report: string
+  summary: string
 }
 
 export interface Annotation {
@@ -108,12 +108,13 @@ async function parseSuite(
   suiteRegex: string
 ): Promise<TestResult> {
   let count = 0
-  let skipped = 0
+  const skipped = []
   const annotations: Annotation[] = []
-  const reportLines = []
+  const summaryLines = []
+  let totalSkipped = 0
 
   if (!suite.testsuite && !suite.testsuites) {
-    return {count, skipped, annotations, report: ''}
+    return {count, skipped: skipped.length, annotations, summary: ''}
   }
 
   const testsuites = suite.testsuite
@@ -126,7 +127,7 @@ async function parseSuite(
 
   for (const testsuite of testsuites) {
     if (!testsuite) {
-      return {count, skipped, annotations, report: ''}
+      return {count, skipped: skipped.length, annotations, summary: ''}
     }
 
     const suiteName = suiteRegex
@@ -139,10 +140,10 @@ async function parseSuite(
 
     const res = await parseSuite(testsuite, suiteName, suiteRegex)
     count += res.count
-    skipped += res.skipped
+    totalSkipped += res.skipped
     annotations.push(...res.annotations)
-    if (res.report) {
-      reportLines.push(`### ${suiteName}\n\n${res.report}`);
+    if (res.summary) {
+      summaryLines.push(`### ${suiteName}\n\n${res.summary}`)
     }
 
     if (!testsuite.testcase) {
@@ -156,7 +157,6 @@ async function parseSuite(
       : []
     for (const testcase of testcases) {
       count++
-      if (testcase.skipped) skipped++
       if (testcase.failure || testcase.error) {
         const stackTrace = (
           (testcase.failure && testcase.failure._cdata) ||
@@ -200,13 +200,16 @@ async function parseSuite(
           : `${pos.fileName}.${testcase._attributes.name}`
         core.info(`${path}:${pos.line} | ${message.replace(/\n/g, ' ')}`)
 
-        const messageLines = [
-          '```',
-          message,
-          '```',
-        ]
+        if (testcase.skipped) {
+          skipped.push(title)
+          totalSkipped++
+        }
+
+        summaryLines.push(`#### ${title}`, '')
+        summaryLines.push('```', message, '```')
+
         if (stackTrace) {
-          messageLines.push(
+          summaryLines.push(
             '',
             '<details>',
             '  <summary>Stack Trace</summary>',
@@ -217,8 +220,9 @@ async function parseSuite(
             '</details>'
           )
         }
+
         if (stderr) {
-          messageLines.push(
+          summaryLines.push(
             '',
             '<details>',
             '  <summary>Output</summary>',
@@ -230,10 +234,7 @@ async function parseSuite(
           )
         }
 
-        reportLines.push(`#### ${title}`, '')
-
-        Array.prototype.push.apply(reportLines, messageLines)
-        reportLines.push('')
+        summaryLines.push('')
 
         annotations.push({
           path,
@@ -249,8 +250,13 @@ async function parseSuite(
       }
     }
   }
-  const report = reportLines.join('\n')
-  return {count, skipped, annotations, report}
+  if (skipped.length) {
+    summaryLines.push('', '<details>', '  <summary>Output</summary>', '')
+    summaryLines.push(...skipped.map(title => `${title}`))
+    summaryLines.push('', '</details>')
+  }
+  const summary = summaryLines.join('\n')
+  return {count, skipped: totalSkipped, annotations, summary}
 }
 
 /**
@@ -268,9 +274,9 @@ export async function parseTestReports(
   let annotations: Annotation[] = []
   let count = 0
   let skipped = 0
-  const reports = []
+  const summaries = []
   for await (const file of globber.globGenerator()) {
-    const {count: c, skipped: s, annotations: a, report} = await parseFile(
+    const {count: c, skipped: s, annotations: a, summary} = await parseFile(
       file,
       suiteRegex
     )
@@ -278,7 +284,7 @@ export async function parseTestReports(
     count += c
     skipped += s
     annotations = annotations.concat(a)
-    reports.push(report)
+    summaries.push(summary)
   }
-  return {count, skipped, annotations, report: reports.join('\n\n')}
+  return {count, skipped, annotations, summary: summaries.join('\n\n')}
 }

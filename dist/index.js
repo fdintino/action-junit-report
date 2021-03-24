@@ -70,7 +70,7 @@ function run() {
                 core.setFailed('❌ No test results found');
                 return;
             }
-            const report = detailedSummary ? testResult.report : '';
+            const { summary } = testResult;
             const pullRequest = github.context.payload.pull_request;
             const link = (pullRequest && pullRequest.html_url) || github.context.ref;
             const conclusion = foundResults && testResult.annotations.length === 0
@@ -83,7 +83,7 @@ function run() {
                 status,
                 conclusion, output: {
                     title,
-                    summary: report,
+                    summary: detailedSummary ? summary : '',
                     annotations: testResult.annotations
                 } });
             core.debug(JSON.stringify(createCheckRequest, null, 2));
@@ -244,11 +244,12 @@ function parseSuite(
 suite, parentName, suiteRegex) {
     return __awaiter(this, void 0, void 0, function* () {
         let count = 0;
-        let skipped = 0;
+        const skipped = [];
         const annotations = [];
-        const reportLines = [];
+        const summaryLines = [];
+        let totalSkipped = 0;
         if (!suite.testsuite && !suite.testsuites) {
-            return { count, skipped, annotations, report: '' };
+            return { count, skipped: skipped.length, annotations, summary: '' };
         }
         const testsuites = suite.testsuite
             ? Array.isArray(suite.testsuite)
@@ -259,7 +260,7 @@ suite, parentName, suiteRegex) {
                 : [suite.testsuites.testsuite];
         for (const testsuite of testsuites) {
             if (!testsuite) {
-                return { count, skipped, annotations, report: '' };
+                return { count, skipped: skipped.length, annotations, summary: '' };
             }
             const suiteName = suiteRegex
                 ? parentName
@@ -270,10 +271,10 @@ suite, parentName, suiteRegex) {
                 : '';
             const res = yield parseSuite(testsuite, suiteName, suiteRegex);
             count += res.count;
-            skipped += res.skipped;
+            totalSkipped += res.skipped;
             annotations.push(...res.annotations);
-            if (res.report) {
-                reportLines.push(`### ${suiteName}\n\n${res.report}`);
+            if (res.summary) {
+                summaryLines.push(`### ${suiteName}\n\n${res.summary}`);
             }
             if (!testsuite.testcase) {
                 continue;
@@ -285,8 +286,6 @@ suite, parentName, suiteRegex) {
                     : [];
             for (const testcase of testcases) {
                 count++;
-                if (testcase.skipped)
-                    skipped++;
                 if (testcase.failure || testcase.error) {
                     const stackTrace = ((testcase.failure && testcase.failure._cdata) ||
                         (testcase.failure && testcase.failure._text) ||
@@ -316,20 +315,19 @@ suite, parentName, suiteRegex) {
                         ? `${pos.fileName}.${suiteName}/${testcase._attributes.name}`
                         : `${pos.fileName}.${testcase._attributes.name}`;
                     core.info(`${path}:${pos.line} | ${message.replace(/\n/g, ' ')}`);
-                    const messageLines = [
-                        '```',
-                        message,
-                        '```',
-                    ];
+                    if (testcase.skipped) {
+                        skipped.push(title);
+                        totalSkipped++;
+                    }
+                    summaryLines.push(`#### ${title}`, '');
+                    summaryLines.push('```', message, '```');
                     if (stackTrace) {
-                        messageLines.push('', '<details>', '  <summary>Stack Trace</summary>', '', '```', stackTrace, '```', '</details>');
+                        summaryLines.push('', '<details>', '  <summary>Stack Trace</summary>', '', '```', stackTrace, '```', '</details>');
                     }
                     if (stderr) {
-                        messageLines.push('', '<details>', '  <summary>Output</summary>', '', '```', stderr, '```', '</details>');
+                        summaryLines.push('', '<details>', '  <summary>Output</summary>', '', '```', stderr, '```', '</details>');
                     }
-                    reportLines.push(`#### ${title}`, '');
-                    Array.prototype.push.apply(reportLines, messageLines);
-                    reportLines.push('');
+                    summaryLines.push('');
                     annotations.push({
                         path,
                         start_line: pos.line,
@@ -344,8 +342,13 @@ suite, parentName, suiteRegex) {
                 }
             }
         }
-        const report = reportLines.join('\n');
-        return { count, skipped, annotations, report };
+        if (skipped.length) {
+            summaryLines.push('', '<details>', '  <summary>Output</summary>', '');
+            summaryLines.push(...skipped.map(title => `${title}`));
+            summaryLines.push('', '</details>');
+        }
+        const summary = summaryLines.join('\n');
+        return { count, skipped: totalSkipped, annotations, summary };
     });
 }
 /**
@@ -362,17 +365,17 @@ function parseTestReports(reportPaths, suiteRegex) {
         let annotations = [];
         let count = 0;
         let skipped = 0;
-        const reports = [];
+        const summaries = [];
         try {
             for (var _b = __asyncValues(globber.globGenerator()), _c; _c = yield _b.next(), !_c.done;) {
                 const file = _c.value;
-                const { count: c, skipped: s, annotations: a, report } = yield parseFile(file, suiteRegex);
+                const { count: c, skipped: s, annotations: a, summary } = yield parseFile(file, suiteRegex);
                 if (c === 0)
                     continue;
                 count += c;
                 skipped += s;
                 annotations = annotations.concat(a);
-                reports.push(report);
+                summaries.push(summary);
             }
         }
         catch (e_2_1) { e_2 = { error: e_2_1 }; }
@@ -382,7 +385,7 @@ function parseTestReports(reportPaths, suiteRegex) {
             }
             finally { if (e_2) throw e_2.error; }
         }
-        return { count, skipped, annotations, report: reports.join('\n\n') };
+        return { count, skipped, annotations, summary: summaries.join('\n\n') };
     });
 }
 exports.parseTestReports = parseTestReports;
