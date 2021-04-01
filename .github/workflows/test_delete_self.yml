@@ -1,0 +1,19 @@
+name: 'Test delete self'
+on:
+  push:
+    branches: [test-delete-self]
+
+jobs:
+  delete_self:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete own workflow run
+        uses: actions/github-script@v3
+        with:
+          script: |
+            github.request(
+              "DELETE /repos/{owner}/{repo}/actions/runs/{run_id}",
+              {
+                ...context.repo,
+                run_id: context.runId,
+              });
